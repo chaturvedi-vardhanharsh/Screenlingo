@@ -151,6 +151,40 @@ class VocabularyStore:
                 except Exception:
                     pass
 
+    def list_language_pairs(self) -> list[tuple[str, str, int]]:
+        """All (source, target) pairs in the database with word counts."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT source_lang, target_lang, COUNT(*) AS cnt
+                FROM words
+                GROUP BY source_lang, target_lang
+                ORDER BY cnt DESC
+                """
+            ).fetchall()
+        return [(r["source_lang"], r["target_lang"], int(r["cnt"])) for r in rows]
+
+    def fetch_words(
+        self,
+        source_lang: str,
+        target_lang: str,
+        limit: int = 100,
+        min_seen: int = 1,
+    ) -> list[WordEntry]:
+        src_sql, src_params = self._source_sql(source_lang)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM words
+                WHERE {src_sql} AND target_lang = ?
+                  AND seen_count >= ?
+                ORDER BY seen_count DESC, word ASC
+                LIMIT ?
+                """,
+                (*src_params, target_lang, min_seen, limit),
+            ).fetchall()
+        return [self._row_to_entry(r) for r in rows]
+
     def top_words(self, source_lang: str, target_lang: str, limit: int = 30) -> list[WordEntry]:
         src_sql, src_params = self._source_sql(source_lang)
         with self._connect() as conn:

@@ -69,3 +69,9 @@ class AppConfig:
 
 def language_label(code: str) -> str:
     return DEFAULT_LANGUAGES.get(code, code)
+
+
+def format_lang_pair(source_lang: str, target_lang: str) -> str:
+    src = language_label(source_lang) if source_lang != "auto" else "Auto-detect"
+    tgt = language_label(target_lang)
+    return f"{src} → {tgt}"

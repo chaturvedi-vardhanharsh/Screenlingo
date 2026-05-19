@@ -6,7 +6,8 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from .config import DEFAULT_LANGUAGES, AppConfig, language_label
+from .config import DEFAULT_LANGUAGES, AppConfig, format_lang_pair, language_label
+from .vocab_widgets import add_vocab_word_card, pair_menu_label, show_vocab_empty_state
 from .learn_check import answers_match, is_valid_flashcard
 from .translation_text import is_noop_translation, sanitize_translation
 from .translator import clear_translation_cache
@@ -43,6 +44,8 @@ class ScreenLingoApp(ctk.CTk):
         self._review_index = 0
         self._card_revealed = False
         self._answer_checked = False
+        self._learn_pair_map: dict[str, tuple[str, str]] = {}
+        self._vocab_pair_map: dict[str, tuple[str, str]] = {}
 
         self._build_ui()
         self._setup_hotkeys()
@@ -210,35 +213,54 @@ class ScreenLingoApp(ctk.CTk):
         )
         self.learn_stats.pack(pady=(12, 4), padx=12, anchor="w")
 
+        lang_row = ctk.CTkFrame(frame, fg_color="transparent")
+        lang_row.pack(fill="x", padx=12, pady=4)
+        ctk.CTkLabel(lang_row, text="Practice deck:", font=ctk.CTkFont(size=13, weight="bold")).pack(
+            side="left", padx=(0, 8)
+        )
+        self.learn_pair_menu = ctk.CTkOptionMenu(lang_row, values=["—"], command=self._on_learn_pair_changed)
+        self.learn_pair_menu.pack(side="left", fill="x", expand=True)
+
         self.learn_hint = ctk.CTkLabel(
             frame,
-            text="Press Start session after translating on screen a few times.",
+            text="Choose a language deck, then press Start session.",
             font=ctk.CTkFont(size=12),
             text_color="gray60",
             wraplength=640,
         )
-        self.learn_hint.pack(pady=(0, 8), padx=12, anchor="w")
+        self.learn_hint.pack(pady=(0, 4), padx=12, anchor="w")
 
-        card = ctk.CTkFrame(frame, height=280)
-        card.pack(fill="x", padx=16, pady=8)
-        card.pack_propagate(False)
+        self.learn_scroll = ctk.CTkScrollableFrame(frame, label_text="Practice card")
+        self.learn_scroll.pack(fill="both", expand=True, padx=12, pady=4)
+
+        card = ctk.CTkFrame(self.learn_scroll, fg_color=("gray90", "gray17"))
+        card.pack(fill="x", padx=4, pady=4)
+        self.learn_lang_badge = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#7fdbca",
+            fg_color=("gray85", "gray20"),
+            corner_radius=6,
+        )
+        self.learn_lang_badge.pack(padx=12, pady=(12, 0), anchor="w")
         self.card_prompt = ctk.CTkLabel(
             card,
             text="Type the translation for this word:",
             font=ctk.CTkFont(size=13),
             text_color="gray70",
-            wraplength=600,
+            wraplength=560,
         )
-        self.card_prompt.pack(pady=(16, 4), padx=12)
+        self.card_prompt.pack(pady=(8, 4), padx=12, anchor="w")
         self.card_word = ctk.CTkLabel(
             card,
             text="Press Start session",
             font=ctk.CTkFont(size=28, weight="bold"),
-            wraplength=600,
+            wraplength=560,
         )
-        self.card_word.pack(pady=(4, 12), padx=12)
+        self.card_word.pack(pady=(4, 12), padx=12, anchor="w")
         entry_row = ctk.CTkFrame(card, fg_color="transparent")
-        entry_row.pack(fill="x", padx=16, pady=4)
+        entry_row.pack(fill="x", padx=12, pady=4)
         ctk.CTkLabel(entry_row, text="Your answer:", font=ctk.CTkFont(size=12)).pack(
             side="left", padx=(0, 8)
         )
@@ -250,16 +272,17 @@ class ScreenLingoApp(ctk.CTk):
             text="",
             font=ctk.CTkFont(size=16),
             text_color="#7fdbca",
-            wraplength=600,
+            wraplength=560,
+            justify="left",
         )
-        self.card_feedback.pack(pady=8, padx=12)
+        self.card_feedback.pack(pady=8, padx=12, anchor="w")
         self.card_meta = ctk.CTkLabel(
-            card, text="", font=ctk.CTkFont(size=12), text_color="gray60", wraplength=600
+            card, text="", font=ctk.CTkFont(size=12), text_color="gray60", wraplength=560
         )
-        self.card_meta.pack(pady=4, padx=12)
+        self.card_meta.pack(pady=(0, 12), padx=12, anchor="w")
 
         actions = ctk.CTkFrame(frame, fg_color="transparent")
-        actions.pack(pady=12, padx=8, fill="x")
+        actions.pack(pady=8, padx=8, fill="x")
         self.learn_start_btn = ctk.CTkButton(
             actions, text="Start session", command=self._start_learn_session, width=120
         )
@@ -276,18 +299,37 @@ class ScreenLingoApp(ctk.CTk):
         ctk.CTkButton(actions, text="Refresh stats", command=self._refresh_learn_stats, width=110).pack(
             side="right", padx=6
         )
+        self._populate_pair_menu(self.learn_pair_menu, self._learn_pair_map)
         self._refresh_learn_stats()
 
     def _build_vocab_tab(self) -> None:
         frame = self.tab_vocab
         top = ctk.CTkFrame(frame, fg_color="transparent")
-        top.pack(fill="x", padx=8, pady=8)
-        ctk.CTkButton(top, text="Refresh list", command=self._refresh_vocab_list).pack(side="left", padx=4)
-        ctk.CTkButton(top, text="Fill missing translations", command=self._fill_translations).pack(
+        top.pack(fill="x", padx=8, pady=(8, 4))
+
+        ctk.CTkLabel(top, text="Language deck:", font=ctk.CTkFont(size=13, weight="bold")).pack(
+            side="left", padx=(4, 8)
+        )
+        self.vocab_pair_menu = ctk.CTkOptionMenu(
+            top, values=["—"], command=lambda _: self._refresh_vocab_list()
+        )
+        self.vocab_pair_menu.pack(side="left", padx=4)
+
+        ctk.CTkButton(top, text="Refresh", command=self._refresh_vocab_list, width=90).pack(
             side="left", padx=4
         )
-        self.vocab_box = ctk.CTkTextbox(frame)
-        self.vocab_box.pack(fill="both", expand=True, padx=8, pady=8)
+        ctk.CTkButton(top, text="Fill translations", command=self._fill_translations, width=120).pack(
+            side="left", padx=4
+        )
+
+        self.vocab_summary = ctk.CTkLabel(
+            frame, text="", font=ctk.CTkFont(size=12), text_color="gray60", anchor="w"
+        )
+        self.vocab_summary.pack(fill="x", padx=16, pady=(0, 4))
+
+        self.vocab_scroll = ctk.CTkScrollableFrame(frame, label_text="Your words")
+        self.vocab_scroll.pack(fill="both", expand=True, padx=8, pady=8)
+        self._populate_pair_menu(self.vocab_pair_menu, self._vocab_pair_map)
         self._refresh_vocab_list()
 
     def _region_text(self) -> str:
@@ -435,15 +477,52 @@ class ScreenLingoApp(ctk.CTk):
         except Exception:
             pass
 
+    def _clear_frame_children(self, frame) -> None:
+        for child in frame.winfo_children():
+            child.destroy()
+
+    def _populate_pair_menu(
+        self, menu: ctk.CTkOptionMenu, pair_map: dict[str, tuple[str, str]]
+    ) -> None:
+        pair_map.clear()
+        pairs = self.vocabulary.list_language_pairs()
+        labels: list[str] = []
+        for src, tgt, cnt in pairs:
+            label = pair_menu_label(src, tgt, cnt)
+            labels.append(label)
+            pair_map[label] = (src, tgt)
+        if not labels:
+            src, tgt = self.config_data.source_lang, self.config_data.target_lang
+            label = pair_menu_label(src, tgt, 0)
+            labels = [label]
+            pair_map[label] = (src, tgt)
+        menu.configure(values=labels)
+        prefer = (self.config_data.source_lang, self.config_data.target_lang)
+        for label, key in pair_map.items():
+            if key == prefer:
+                menu.set(label)
+                return
+        menu.set(labels[0])
+
+    def _pair_from_menu(
+        self, menu: ctk.CTkOptionMenu, pair_map: dict[str, tuple[str, str]]
+    ) -> tuple[str, str]:
+        label = menu.get()
+        if label in pair_map:
+            return pair_map[label]
+        return self.config_data.source_lang, self.config_data.target_lang
+
+    def _on_learn_pair_changed(self, _choice: str) -> None:
+        self._refresh_learn_stats()
+
     def _refresh_learn_stats(self) -> None:
-        self._apply_settings()
-        src = self.config_data.source_lang
-        tgt = self.config_data.target_lang
+        src, tgt = self._pair_from_menu(self.learn_pair_menu, self._learn_pair_map)
         stats = self.vocabulary.stats(src, tgt)
+        deck = format_lang_pair(src, tgt)
         self.learn_stats.configure(
             text=(
-                f"Words tracked: {stats['total']} · Seen 2+ times: {stats['frequent']} · "
-                f"Mastered: {stats['mastered']} · Target: {language_label(tgt)}"
+                f"Deck: {deck} · {stats['total']} words saved · "
+                f"{stats['frequent']} ready to practice · {stats['mastered']} mastered"
             )
         )
 
@@ -457,8 +536,7 @@ class ScreenLingoApp(ctk.CTk):
 
         def work() -> None:
             try:
-                src = self.config_data.source_lang
-                tgt = self.config_data.target_lang
+                src, tgt = self._pair_from_menu(self.learn_pair_menu, self._learn_pair_map)
                 self.vocabulary.ensure_translations(src, tgt, limit=15)
                 queue = self.vocabulary.due_for_review(
                     src, tgt, limit=self.config_data.learn_daily_goal
@@ -510,18 +588,15 @@ class ScreenLingoApp(ctk.CTk):
         self.learn_hint.configure(text=f"Error: {message}")
         self.card_word.configure(text="Could not load session")
 
-    def _learn_prompt_text(self) -> str:
-        tgt = language_label(self.config_data.target_lang)
-        src = self.config_data.source_lang
-        if src == "auto":
-            return (
-                f"Word captured from your screen — type its {tgt} meaning "
-                f"(use foreign text on screen, not English UI):"
-            )
-        return f"{language_label(src)} → {tgt}: type the translation:"
+    def _learn_prompt_text(self, source_lang: str, target_lang: str) -> str:
+        tgt = language_label(target_lang)
+        if source_lang == "auto":
+            return f"Word from screen — type the {tgt} translation:"
+        return f"{language_label(source_lang)} → {tgt}: type the translation:"
 
     def _show_current_card(self) -> None:
         if not self._review_queue or self._review_index >= len(self._review_queue):
+            self.learn_lang_badge.configure(text="")
             self.card_prompt.configure(text="")
             self.card_word.configure(text="Session complete!")
             self.card_feedback.configure(text="Great job — come back later for more reviews.")
@@ -532,7 +607,8 @@ class ScreenLingoApp(ctk.CTk):
         entry = self._review_queue[self._review_index]
         self._card_revealed = False
         self._answer_checked = False
-        self.card_prompt.configure(text=self._learn_prompt_text())
+        self.learn_lang_badge.configure(text=format_lang_pair(entry.source_lang, entry.target_lang))
+        self.card_prompt.configure(text=self._learn_prompt_text(entry.source_lang, entry.target_lang))
         self.card_word.configure(text=entry.word)
         self.card_feedback.configure(text="")
         self.answer_entry.configure(state="normal")
@@ -614,27 +690,27 @@ class ScreenLingoApp(ctk.CTk):
         self._show_current_card()
 
     def _refresh_vocab_list(self) -> None:
-        self._apply_settings()
-        words = self.vocabulary.top_words(
-            self.config_data.source_lang, self.config_data.target_lang, limit=50
-        )
-        lines = ["Word | Translation | Times seen | Reviews\n" + "-" * 55 + "\n"]
-        for w in words:
-            lines.append(
-                f"{w.word} | {w.translation or '—'} | {w.seen_count} | ✓{w.correct_count} ✗{w.wrong_count}\n"
+        src, tgt = self._pair_from_menu(self.vocab_pair_menu, self._vocab_pair_map)
+        self._clear_frame_children(self.vocab_scroll)
+        words = self.vocabulary.fetch_words(src, tgt, limit=150, min_seen=1)
+        deck = format_lang_pair(src, tgt)
+        if words:
+            self.vocab_summary.configure(text=f"Showing {len(words)} words · {deck}")
+            for entry in words:
+                add_vocab_word_card(self.vocab_scroll, entry)
+        else:
+            self.vocab_summary.configure(text=f"No words in {deck} yet")
+            show_vocab_empty_state(
+                self.vocab_scroll,
+                "Words you see during Live Translate will appear here.\n\n"
+                "Pick a language deck above, or use Live Translate with that source/target pair.",
             )
-        if len(lines) == 1:
-            lines.append("\nNo frequent words yet. Use live translate — words appear after you see them twice.")
-        self.vocab_box.delete("1.0", "end")
-        self.vocab_box.insert("1.0", "".join(lines))
 
     def _fill_translations(self) -> None:
-        self._apply_settings()
+        src, tgt = self._pair_from_menu(self.vocab_pair_menu, self._vocab_pair_map)
 
         def work() -> None:
-            self.vocabulary.ensure_translations(
-                self.config_data.source_lang, self.config_data.target_lang
-            )
+            self.vocabulary.ensure_translations(src, tgt)
             self.after(0, self._refresh_vocab_list)
 
         threading.Thread(target=work, daemon=True).start()

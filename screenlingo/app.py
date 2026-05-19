@@ -7,6 +7,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from .config import DEFAULT_LANGUAGES, AppConfig, language_label
+from .learn_check import answers_match, is_valid_flashcard
 from .translator import clear_translation_cache
 from .engine import LiveTranslationEngine
 from .overlay import TranslationOverlay
@@ -40,6 +41,7 @@ class ScreenLingoApp(ctk.CTk):
         self._review_queue: list[WordEntry] = []
         self._review_index = 0
         self._card_revealed = False
+        self._answer_checked = False
 
         self._build_ui()
         self._setup_hotkeys()
@@ -216,24 +218,40 @@ class ScreenLingoApp(ctk.CTk):
         )
         self.learn_hint.pack(pady=(0, 8), padx=12, anchor="w")
 
-        card = ctk.CTkFrame(frame, height=220)
+        card = ctk.CTkFrame(frame, height=280)
         card.pack(fill="x", padx=16, pady=8)
         card.pack_propagate(False)
+        self.card_prompt = ctk.CTkLabel(
+            card,
+            text="Type the translation for this word:",
+            font=ctk.CTkFont(size=13),
+            text_color="gray70",
+            wraplength=600,
+        )
+        self.card_prompt.pack(pady=(16, 4), padx=12)
         self.card_word = ctk.CTkLabel(
             card,
             text="Press Start session",
-            font=ctk.CTkFont(size=26, weight="bold"),
+            font=ctk.CTkFont(size=28, weight="bold"),
             wraplength=600,
         )
-        self.card_word.pack(pady=(28, 8), padx=12)
-        self.card_translation = ctk.CTkLabel(
+        self.card_word.pack(pady=(4, 12), padx=12)
+        entry_row = ctk.CTkFrame(card, fg_color="transparent")
+        entry_row.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(entry_row, text="Your answer:", font=ctk.CTkFont(size=12)).pack(
+            side="left", padx=(0, 8)
+        )
+        self.answer_entry = ctk.CTkEntry(entry_row, placeholder_text="Type translation here", height=36)
+        self.answer_entry.pack(side="left", fill="x", expand=True)
+        self.answer_entry.bind("<Return>", lambda _: self._check_answer())
+        self.card_feedback = ctk.CTkLabel(
             card,
-            text="Translation appears here",
-            font=ctk.CTkFont(size=20),
+            text="",
+            font=ctk.CTkFont(size=16),
             text_color="#7fdbca",
             wraplength=600,
         )
-        self.card_translation.pack(pady=8, padx=12)
+        self.card_feedback.pack(pady=8, padx=12)
         self.card_meta = ctk.CTkLabel(
             card, text="", font=ctk.CTkFont(size=12), text_color="gray60", wraplength=600
         )
@@ -245,19 +263,15 @@ class ScreenLingoApp(ctk.CTk):
             actions, text="Start session", command=self._start_learn_session, width=120
         )
         self.learn_start_btn.pack(side="left", padx=6)
-        ctk.CTkButton(actions, text="Reveal", command=self._reveal_card, width=90).pack(
+        ctk.CTkButton(
+            actions, text="Check", command=self._check_answer, fg_color="#2d6a4f", width=90
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="Reveal answer", command=self._reveal_card, width=110).pack(
             side="left", padx=6
         )
-        ctk.CTkButton(
-            actions, text="I knew it", command=lambda: self._rate_card(True), fg_color="#2d6a4f", width=100
-        ).pack(side="left", padx=6)
-        ctk.CTkButton(
-            actions,
-            text="Still learning",
-            command=lambda: self._rate_card(False),
-            fg_color="#9d0208",
-            width=110,
-        ).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="Next card", command=self._advance_card, width=90).pack(
+            side="left", padx=6
+        )
         ctk.CTkButton(actions, text="Refresh stats", command=self._refresh_learn_stats, width=110).pack(
             side="right", padx=6
         )
@@ -437,7 +451,8 @@ class ScreenLingoApp(ctk.CTk):
         self.learn_start_btn.configure(state="disabled", text="Loading…")
         self.learn_hint.configure(text="Loading vocabulary…")
         self.card_word.configure(text="Please wait")
-        self.card_translation.configure(text="")
+        self.card_feedback.configure(text="")
+        self.answer_entry.configure(state="disabled")
 
         def work() -> None:
             try:
@@ -451,6 +466,7 @@ class ScreenLingoApp(ctk.CTk):
                     queue = self.vocabulary.practice_words(
                         src, tgt, limit=self.config_data.learn_daily_goal, min_seen=1
                     )
+                queue = [e for e in queue if is_valid_flashcard(e.word, e.translation)]
                 stats = self.vocabulary.stats(src, tgt)
 
                 def on_main() -> None:
@@ -469,14 +485,16 @@ class ScreenLingoApp(ctk.CTk):
                             text="No words yet. Use Live Translate on screen text, then try again."
                         )
                         self.card_word.configure(text="No words to practice")
-                        self.card_translation.configure(
-                            text="ScreenLingo saves words as you translate. Each word needs to appear at least once."
+                        self.card_feedback.configure(
+                            text="Use Live Translate on foreign text (not the English overlay)."
                         )
                         self.card_meta.configure(text="")
+                        self.answer_entry.configure(state="disabled")
                     else:
                         self.learn_hint.configure(
-                            text=f"{len(queue)} cards ready · Reveal, then rate yourself"
+                            text=f"{len(queue)} cards · Type the translation, press Check or Enter"
                         )
+                        self.answer_entry.configure(state="normal")
                         self._show_current_card()
 
                 self.after(0, on_main)
@@ -490,47 +508,95 @@ class ScreenLingoApp(ctk.CTk):
         self.learn_hint.configure(text=f"Error: {message}")
         self.card_word.configure(text="Could not load session")
 
+    def _learn_prompt_text(self) -> str:
+        tgt = language_label(self.config_data.target_lang)
+        src = self.config_data.source_lang
+        if src == "auto":
+            return f"Word from your screen — type the {tgt} translation:"
+        return f"{language_label(src)} word — type the {tgt} translation:"
+
     def _show_current_card(self) -> None:
         if not self._review_queue or self._review_index >= len(self._review_queue):
+            self.card_prompt.configure(text="")
             self.card_word.configure(text="Session complete!")
-            self.card_translation.configure(text="Great job — come back later for more reviews.")
+            self.card_feedback.configure(text="Great job — come back later for more reviews.")
             self.card_meta.configure(text="")
             self.learn_hint.configure(text="Press Start session to practice again.")
+            self.answer_entry.configure(state="disabled")
             return
         entry = self._review_queue[self._review_index]
         self._card_revealed = False
+        self._answer_checked = False
+        self.card_prompt.configure(text=self._learn_prompt_text())
         self.card_word.configure(text=entry.word)
-        self.card_translation.configure(text="?  (press Reveal)")
+        self.card_feedback.configure(text="")
+        self.answer_entry.configure(state="normal")
+        self.answer_entry.delete(0, "end")
+        self.answer_entry.focus_set()
         self.card_meta.configure(
-            text=f"Seen {entry.seen_count}× on your screen · Card {self._review_index + 1} of {len(self._review_queue)}"
+            text=f"Seen {entry.seen_count}× on screen · Card {self._review_index + 1} of {len(self._review_queue)}"
         )
 
-    def _reveal_card(self) -> None:
-        if not self._review_queue:
-            self.learn_hint.configure(text="Press Start session first.")
-            return
-        if self._review_index >= len(self._review_queue):
-            self.learn_hint.configure(text="Session finished — press Start session to reload.")
-            return
-        entry = self._review_queue[self._review_index]
-        self._card_revealed = True
-        tr = (entry.translation or "").strip()
-        if not tr or tr.startswith("["):
-            tr = "(translation missing — check network / SSL settings)"
-        self.card_translation.configure(text=tr)
+    def _current_entry(self):
+        if not self._review_queue or self._review_index >= len(self._review_queue):
+            return None
+        return self._review_queue[self._review_index]
 
-    def _rate_card(self, knew_it: bool) -> None:
-        if not self._review_queue:
+    def _expected_translation(self, entry) -> str:
+        return (entry.translation or "").strip()
+
+    def _check_answer(self) -> None:
+        entry = self._current_entry()
+        if entry is None:
             self.learn_hint.configure(text="Press Start session first.")
             return
-        if self._review_index >= len(self._review_queue):
+        if self._answer_checked:
+            self._advance_card()
             return
-        if not self._card_revealed:
-            self._reveal_card()
-            if not self._card_revealed:
-                return
-        entry = self._review_queue[self._review_index]
-        self.vocabulary.record_review(entry.id, knew_it)
+        user = self.answer_entry.get().strip()
+        if not user:
+            self.learn_hint.configure(text="Type your answer, then press Check or Enter.")
+            return
+        expected = self._expected_translation(entry)
+        if not expected or expected.startswith("["):
+            self.card_feedback.configure(
+                text="No translation saved for this word — press Reveal answer or fix network."
+            )
+            return
+        if answers_match(user, expected):
+            self.card_feedback.configure(text="Correct!", text_color="#52b788")
+            self.vocabulary.record_review(entry.id, True)
+            self._answer_checked = True
+            self.learn_hint.configure(text="Nice! Moving to next card…")
+            self.after(900, self._advance_card)
+        else:
+            self.card_feedback.configure(
+                text=f"Not quite. Correct answer: {expected}",
+                text_color="#e85d04",
+            )
+            self.vocabulary.record_review(entry.id, False)
+            self._answer_checked = True
+            self._card_revealed = True
+            self.learn_hint.configure(text="Press Next card when ready.")
+
+    def _reveal_card(self) -> None:
+        entry = self._current_entry()
+        if entry is None:
+            self.learn_hint.configure(text="Press Start session first.")
+            return
+        expected = self._expected_translation(entry)
+        if not expected or expected.startswith("["):
+            expected = "(translation missing — check network / SSL settings)"
+        self.card_feedback.configure(text=f"Answer: {expected}", text_color="#7fdbca")
+        self._card_revealed = True
+        if not self._answer_checked:
+            self.vocabulary.record_review(entry.id, False)
+            self._answer_checked = True
+            self.learn_hint.configure(text="Revealed — counts as practice miss. Press Next card.")
+
+    def _advance_card(self) -> None:
+        if not self._review_queue:
+            return
         self._review_index += 1
         self._show_current_card()
 

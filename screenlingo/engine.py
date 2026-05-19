@@ -7,6 +7,7 @@ from typing import Callable
 from .capture import capture_from_config
 from .config import AppConfig
 from .ocr import extract_text, tokenize_words
+from .lang_detect import resolve_source_lang
 from .translator import translate_text
 from .vocabulary import VocabularyStore
 
@@ -50,17 +51,17 @@ class LiveTranslationEngine:
         text = extract_text(image)
         if not text:
             return "", "", []
+        src = resolve_source_lang(self.config.source_lang, text)
         self.on_status("Translating…")
         translated = translate_text(
             text,
-            self.config.source_lang,
+            src,
             self.config.target_lang,
             max_chars=self.config.max_translate_chars,
         )
         words = tokenize_words(text, self.config.min_word_length)
-        src = self.config.source_lang if self.config.source_lang != "auto" else "auto"
         new_freq = self.vocabulary.record_words(
-            words, src, self.config.target_lang
+            words, src, self.config.target_lang, context_text=text
         )
         return text, translated, new_freq
 

@@ -104,12 +104,14 @@ class ScreenLingoApp(ctk.CTk):
             return fallback_var.get()
 
     def _update_lang_status(self) -> None:
-        src = language_label(self.src_var.get())
+        src_code = self.src_var.get()
         tgt = language_label(self.tgt_var.get())
+        if src_code == "auto":
+            src = "Auto-detect (per screen)"
+        else:
+            src = language_label(src_code)
         note = ""
-        if self.src_var.get() != "auto" and _base_lang_code(self.src_var.get()) == _base_lang_code(
-            self.tgt_var.get()
-        ):
+        if src_code != "auto" and _base_lang_code(src_code) == _base_lang_code(self.tgt_var.get()):
             note = " · Change target language — source and target are the same"
         self.lang_status_label.configure(text=f"Translating: {src} → {tgt}{note}")
 
@@ -571,6 +573,8 @@ class ScreenLingoApp(ctk.CTk):
 
         def work() -> None:
             try:
+                self.vocabulary.backfill_auto_source_languages()
+                self.after(0, lambda: self._populate_pair_menu(self.learn_pair_menu, self._learn_pair_map))
                 src, tgt = self._pair_from_menu(self.learn_pair_menu, self._learn_pair_map)
                 self.vocabulary.ensure_translations(src, tgt, limit=15)
                 queue = self.vocabulary.due_for_review(
@@ -625,9 +629,10 @@ class ScreenLingoApp(ctk.CTk):
 
     def _learn_prompt_text(self, source_lang: str, target_lang: str) -> str:
         tgt = language_label(target_lang)
+        src_label = language_label(source_lang) if source_lang != "auto" else "screen"
         if source_lang == "auto":
             return f"Word from screen — type the {tgt} translation:"
-        return f"{language_label(source_lang)} → {tgt}: type the translation:"
+        return f"{src_label} → {tgt}: type the translation:"
 
     def _show_current_card(self) -> None:
         if not self._review_queue or self._review_index >= len(self._review_queue):
@@ -725,6 +730,8 @@ class ScreenLingoApp(ctk.CTk):
         self._show_current_card()
 
     def _refresh_vocab_list(self) -> None:
+        self.vocabulary.backfill_auto_source_languages(limit=200)
+        self._populate_pair_menu(self.vocab_pair_menu, self._vocab_pair_map)
         src, tgt = self._pair_from_menu(self.vocab_pair_menu, self._vocab_pair_map)
         self._clear_frame_children(self.vocab_scroll)
         words = self.vocabulary.fetch_words(src, tgt, limit=150, min_seen=1)

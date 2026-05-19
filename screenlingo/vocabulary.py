@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH
+from .lang_detect import detect_language, normalize_lang_code
 from .translation_text import sanitize_translation
 from .translator import translate_word
 
@@ -73,10 +74,17 @@ class VocabularyStore:
         source_lang: str,
         target_lang: str,
         min_seen_for_learn: int = 2,
+        *,
+        context_text: str = "",
     ) -> list[str]:
         """Track words from OCR text. Returns newly frequent words worth highlighting."""
         if not words:
             return []
+        source_lang = normalize_lang_code(source_lang)
+        if source_lang == "auto" and context_text:
+            detected = detect_language(context_text)
+            if detected:
+                source_lang = detected
         now = _now()
         new_frequent: list[str] = []
         with self._connect() as conn:
@@ -109,6 +117,43 @@ class VocabularyStore:
                     )
         return new_frequent
 
+    def backfill_auto_source_languages(self, limit: int = 500) -> int:
+        """Replace source_lang='auto' with detected language; merge duplicates."""
+        updated = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM words WHERE source_lang = 'auto' ORDER BY seen_count DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            for row in rows:
+                sample = row["word"]
+                if len(sample) < 4:
+                    continue
+                detected = detect_language(sample)
+                if not detected or detected == "auto":
+                    continue
+                detected = normalize_lang_code(detected)
+                conflict = conn.execute(
+                    """
+                    SELECT id, seen_count FROM words
+                    WHERE word=? AND source_lang=? AND target_lang=? AND id!=?
+                    """,
+                    (row["word"], detected, row["target_lang"], row["id"]),
+                ).fetchone()
+                if conflict:
+                    conn.execute(
+                        "UPDATE words SET seen_count = seen_count + ? WHERE id = ?",
+                        (row["seen_count"], conflict["id"]),
+                    )
+                    conn.execute("DELETE FROM words WHERE id = ?", (row["id"],))
+                else:
+                    conn.execute(
+                        "UPDATE words SET source_lang = ? WHERE id = ?",
+                        (detected, row["id"]),
+                    )
+                updated += 1
+        return updated
+
     @staticmethod
     def _source_sql(source_lang: str) -> tuple[str, tuple[str, ...]]:
         """Match words saved with auto-detect or a specific source language."""
@@ -129,6 +174,7 @@ class VocabularyStore:
         return updated
 
     def ensure_translations(self, source_lang: str, target_lang: str, limit: int = 50) -> None:
+        self.backfill_auto_source_languages()
         self.repair_translations()
         src_sql, src_params = self._source_sql(source_lang)
         tr_source = source_lang if source_lang != "auto" else "auto"

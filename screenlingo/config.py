@@ -29,6 +29,16 @@ DEFAULT_LANGUAGES = {
     "vi": "Vietnamese",
     "th": "Thai",
     "id": "Indonesian",
+    "sv": "Swedish",
+    "no": "Norwegian",
+    "da": "Danish",
+    "fi": "Finnish",
+    "cs": "Czech",
+    "el": "Greek",
+    "he": "Hebrew",
+    "uk": "Ukrainian",
+    "ro": "Romanian",
+    "hu": "Hungarian",
 }
 
 
@@ -72,6 +82,9 @@ def language_label(code: str) -> str:
 
 
 def format_lang_pair(source_lang: str, target_lang: str) -> str:
-    src = language_label(source_lang) if source_lang != "auto" else "Auto-detect"
+    if source_lang == "auto":
+        src = "Auto-detect"
+    else:
+        src = language_label(source_lang)
     tgt = language_label(target_lang)
     return f"{src} → {tgt}"

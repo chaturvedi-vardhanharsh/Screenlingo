@@ -52,7 +52,10 @@ class LiveTranslationEngine:
             return "", "", []
         self.on_status("Translating…")
         translated = translate_text(
-            text, self.config.source_lang, self.config.target_lang
+            text,
+            self.config.source_lang,
+            self.config.target_lang,
+            max_chars=self.config.max_translate_chars,
         )
         words = tokenize_words(text, self.config.min_word_length)
         src = self.config.source_lang if self.config.source_lang != "auto" else "auto"

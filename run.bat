@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-if not exist ".venv\Scripts\python.exe" (
+if not exist ".venv\Scripts\pythonw.exe" (
   echo ScreenLingo: first-time setup...
   python -m venv .venv
   if errorlevel 1 (
@@ -17,5 +17,6 @@ if not exist ".venv\Scripts\python.exe" (
   )
   echo Setup complete.
 )
-.venv\Scripts\python.exe main.py
-if errorlevel 1 pause
+REM Launch detached (keeps running after this window closes)
+start "" /D "%~dp0" ".venv\Scripts\pythonw.exe" main.py
+exit /b 0

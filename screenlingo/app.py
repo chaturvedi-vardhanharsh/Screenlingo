@@ -104,6 +104,23 @@ class ScreenLingoApp(ctk.CTk):
         )
         ctk.CTkButton(region_row, text="Full screen", command=self._clear_region).pack(side="left", padx=4)
 
+        net = ctk.CTkFrame(frame)
+        net.pack(fill="x", padx=8, pady=4)
+        self.system_cert_var = ctk.BooleanVar(value=self.config_data.use_system_certificates)
+        self.relax_ssl_var = ctk.BooleanVar(value=not self.config_data.ssl_verify)
+        ctk.CTkCheckBox(
+            net,
+            text="Use Windows certificates (recommended on work PC)",
+            variable=self.system_cert_var,
+            command=self._apply_settings,
+        ).pack(anchor="w", padx=8, pady=2)
+        ctk.CTkCheckBox(
+            net,
+            text="Relax SSL check (only if translation still fails on corporate network)",
+            variable=self.relax_ssl_var,
+            command=self._apply_settings,
+        ).pack(anchor="w", padx=8, pady=2)
+
         btn_row = ctk.CTkFrame(frame, fg_color="transparent")
         btn_row.pack(fill="x", padx=8, pady=12)
         self.live_btn = ctk.CTkButton(
@@ -131,10 +148,11 @@ class ScreenLingoApp(ctk.CTk):
 
         hint = ctk.CTkLabel(
             frame,
-            text=f"Hotkeys: {self.config_data.hotkey_capture} = translate now · "
-            f"{self.config_data.hotkey_toggle_live} = toggle live",
+            text=f"Tip: use Select screen area (not full screen) to avoid translating this app. "
+            f"Hotkeys: {self.config_data.hotkey_capture} / {self.config_data.hotkey_toggle_live}",
             font=ctk.CTkFont(size=11),
             text_color="gray60",
+            wraplength=660,
         )
         hint.pack(pady=4)
 
@@ -204,7 +222,19 @@ class ScreenLingoApp(ctk.CTk):
         self.config_data.source_lang = self.src_var.get()
         self.config_data.target_lang = self.tgt_var.get()
         self.config_data.poll_interval_sec = float(self.interval_slider.get())
+        self.config_data.use_system_certificates = bool(self.system_cert_var.get())
+        self.config_data.ssl_verify = not bool(self.relax_ssl_var.get())
         self.config_data.save()
+        self._reconfigure_ssl()
+
+    def _reconfigure_ssl(self) -> None:
+        from .ssl_setup import configure_ssl, patch_requests
+
+        configure_ssl(
+            use_system_certificates=self.config_data.use_system_certificates,
+            ssl_verify=self.config_data.ssl_verify,
+        )
+        patch_requests()
 
     def _show_overlay(self) -> None:
         if self.overlay is None or not self.overlay.winfo_exists():
@@ -349,5 +379,8 @@ class ScreenLingoApp(ctk.CTk):
 
 
 def run() -> None:
+    from .bootstrap import init_app
+
+    init_app()
     app = ScreenLingoApp()
     app.mainloop()

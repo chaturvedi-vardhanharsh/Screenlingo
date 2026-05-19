@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "screenlingo"
-version = "1.0.1"
+version = "1.0.2"
 description = "Real-time screen translation and vocabulary learning for Windows"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,6 +31,8 @@ dependencies = [
     "Pillow>=10.4.0",
     "deep-translator>=1.11.4",
     "keyboard>=0.13.5",
+    "certifi>=2024.8.30",
+    "truststore>=0.10.0; sys_platform == 'win32'",
     "winrt-runtime>=2.3.0; sys_platform == 'win32'",
     "winrt-Windows.Foundation>=2.3.0; sys_platform == 'win32'",
     "winrt-Windows.Media.Ocr>=2.3.0; sys_platform == 'win32'",

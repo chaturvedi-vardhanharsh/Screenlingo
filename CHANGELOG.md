@@ -2,6 +2,19 @@
 
 All notable changes to ScreenLingo are documented in this file.
 
+## [1.0.2] - 2026-05-19
+
+### Fixed
+
+- SSL certificate errors on corporate networks (uses Windows certificate store via `truststore`)
+- Translation failures from oversized OCR text (chunking + URL/noise filtering)
+- App closing when PowerShell closes (`run.bat` and `ScreenLingo.vbs` launch detached via `pythonw`)
+
+### Added
+
+- Network settings: Windows certificates toggle and optional relaxed SSL for strict proxies
+- MyMemory fallback if Google Translate is unavailable
+
 ## [1.0.1] - 2026-05-19
 
 ### Fixed

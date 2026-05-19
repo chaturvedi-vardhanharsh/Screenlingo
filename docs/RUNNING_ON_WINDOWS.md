@@ -136,8 +136,15 @@ Uninstalling the repo folder does **not** delete this data. Remove `.screenlingo
 
 ### Translation shows an error
 
-- Check internet connection.
-- Try again in a minute (Google Translate rate limits are rare).
+- On a **work PC**, enable **Use Windows certificates** in the app. If it still fails, check **Relax SSL check**.
+- Connect to company **VPN** if your network routes Google through an internal proxy.
+- Use **Select screen area** so OCR does not capture login pages and long URLs.
+- Check internet connection and try again in a minute.
+
+### App closes when I close PowerShell
+
+- Use **`ScreenLingo.vbs`** (double-click) or **`run.bat`** — both start the app detached.
+- Do not run `python main.py` directly in PowerShell unless you keep that window open.
 
 ### `ModuleNotFoundError` for `winrt`
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
 APP_DIR = Path.home() / ".screenlingo"
@@ -43,6 +43,9 @@ class AppConfig:
     learn_daily_goal: int = 10
     hotkey_capture: str = "ctrl+shift+t"
     hotkey_toggle_live: str = "ctrl+shift+l"
+    max_translate_chars: int = 1200
+    use_system_certificates: bool = True
+    ssl_verify: bool = True
 
     def save(self) -> None:
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,6 +62,8 @@ class AppConfig:
         region = data.get("capture_region")
         if region is not None:
             data["capture_region"] = tuple(region)
+        valid = {f.name for f in fields(cls)}
+        data = {k: v for k, v in data.items() if k in valid}
         return cls(**data)
 
 

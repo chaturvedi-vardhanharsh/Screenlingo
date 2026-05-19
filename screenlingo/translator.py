@@ -23,24 +23,30 @@ _translation_cache: dict[str, str] = {}
 
 
 def _google_translate_chunk(text: str, source: str, target: str) -> str:
-    params = {**_GOOGLE_PARAMS, "sl": source, "tl": target, "q": text}
+    params = {
+        "client": "gtx",
+        "sl": source,
+        "tl": target,
+        "dt": "t",
+        "q": text,
+    }
     response = requests.get(
-        BASE_URLS["GOOGLE_TRANSLATE"],
+        _GOOGLE_API,
         params=params,
         timeout=20,
         verify=requests_verify_setting(),
     )
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    element = soup.find("div", {"class": "t0"}) or soup.find("div", {"class": "result-container"})
-    if element is None:
-        raise ValueError("Translation not found in response")
-    return element.get_text(strip=True)
+    data = response.json()
+    if not data or not data[0]:
+        raise ValueError("Empty translation response")
+    return "".join(part[0] for part in data[0] if part and part[0])
 
 
 def _mymemory_translate_chunk(text: str, source: str, target: str) -> str:
-    src = "en" if source == "auto" else source
-    translator = MyMemoryTranslator(source=src, target=target)
+    src = "en" if source in ("auto", "") else source
+    tgt = target or "en"
+    translator = MyMemoryTranslator(source=src, target=tgt)
     return str(translator.translate(text))
 
 
@@ -76,6 +82,8 @@ def translate_text(
         err = str(exc).lower()
         if "certificate" in err or "ssl" in err:
             hint = " Try enabling Windows certificates or Relax SSL check in settings."
+        elif "connection" in err or "resolve" in err:
+            hint = " Check VPN or company network access."
         result = f"[Translation error: {exc}.{hint}]"
 
     _translation_cache[key] = result

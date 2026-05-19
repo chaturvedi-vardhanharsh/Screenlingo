@@ -206,12 +206,48 @@ class ScreenLingoApp(ctk.CTk):
         return f"Capture region: {r[0]}×{r[1]} +{r[2]}×{r[3]}"
 
     def _pick_region(self) -> None:
+        self._hide_for_region_select()
+
+        def restore() -> None:
+            self._show_after_region_select()
+
         def on_select(region: tuple[int, int, int, int]) -> None:
             self.config_data.capture_region = region
             self.config_data.save()
             self.region_label.configure(text=self._region_text())
+            restore()
 
-        RegionSelector(self, on_select)
+        def open_selector() -> None:
+            selector = RegionSelector(self, on_select, on_cancel=restore)
+            selector.lift()
+            selector.focus_force()
+            try:
+                selector.grab_set()
+            except tk.TclError:
+                pass
+
+        # Brief delay so the main window is fully hidden before the overlay appears
+        self.after(120, open_selector)
+
+    def _hide_for_region_select(self) -> None:
+        self._overlay_was_visible = False
+        if self.overlay is not None and self.overlay.winfo_exists():
+            try:
+                if self.overlay.state() != "withdrawn":
+                    self._overlay_was_visible = True
+                    self.overlay.withdraw()
+            except tk.TclError:
+                pass
+        self.withdraw()
+        self.update_idletasks()
+
+    def _show_after_region_select(self) -> None:
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        if self._overlay_was_visible and self.overlay is not None and self.overlay.winfo_exists():
+            self.overlay.deiconify()
+            self.overlay.lift()
 
     def _clear_region(self) -> None:
         self.config_data.capture_region = None

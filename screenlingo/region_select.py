@@ -7,14 +7,23 @@ from typing import Callable
 class RegionSelector(tk.Toplevel):
     """Fullscreen translucent overlay to drag-select a screen region."""
 
-    def __init__(self, master: tk.Misc, on_select: Callable[[tuple[int, int, int, int]], None]) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        on_select: Callable[[tuple[int, int, int, int]], None],
+        on_cancel: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(master)
         self.on_select = on_select
+        self.on_cancel = on_cancel
+        self._finished = False
         self.attributes("-fullscreen", True)
         self.attributes("-alpha", 0.25)
         self.attributes("-topmost", True)
+        self.overrideredirect(True)
         self.configure(bg="black")
         self.cursor = "crosshair"
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self.canvas = tk.Canvas(self, cursor="crosshair", highlightthickness=0, bg="black")
         self.canvas.pack(fill="both", expand=True)
@@ -26,7 +35,7 @@ class RegionSelector(tk.Toplevel):
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        self.bind("<Escape>", lambda _: self.destroy())
+        self.bind("<Escape>", lambda _: self._cancel())
 
         hint = tk.Label(
             self,
@@ -50,16 +59,30 @@ class RegionSelector(tk.Toplevel):
         if self.rect_id is not None and self.start_x is not None:
             self.canvas.coords(self.rect_id, self.start_x, self.start_y, event.x, event.y)
 
+    def _cancel(self) -> None:
+        if self._finished:
+            return
+        self._finished = True
+        self.destroy()
+        if self.on_cancel:
+            self.on_cancel()
+
+    def _complete(self, region: tuple[int, int, int, int]) -> None:
+        if self._finished:
+            return
+        self._finished = True
+        self.destroy()
+        self.on_select(region)
+
     def _on_release(self, event: tk.Event) -> None:
         if self.start_x is None or self.start_y is None:
-            self.destroy()
+            self._cancel()
             return
         x1, y1 = self.start_x, self.start_y
         x2, y2 = event.x, event.y
         left, top = min(x1, x2), min(y1, y2)
         width, height = abs(x2 - x1), abs(y2 - y1)
         if width < 20 or height < 20:
-            self.destroy()
+            self._cancel()
             return
-        self.on_select((left, top, width, height))
-        self.destroy()
+        self._complete((left, top, width, height))

@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "screenlingo"
+version = "1.0.0"
+description = "Real-time screen translation and vocabulary learning for Windows"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10,<3.15"
+authors = [{ name = "ScreenLingo Contributors" }]
+keywords = ["translation", "ocr", "language-learning", "windows", "screen-capture"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "customtkinter>=5.2.2",
+    "mss>=9.0.2",
+    "Pillow>=10.4.0",
+    "deep-translator>=1.11.4",
+    "keyboard>=0.13.5",
+    "winrt-runtime>=2.3.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=2.3.0; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr>=2.3.0; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=2.3.0; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=2.3.0; sys_platform == 'win32'",
+    "winrt-Windows.Globalization>=2.3.0; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/chaturvedi-vardhanharsh/Screenlingo"
+Repository = "https://github.com/chaturvedi-vardhanharsh/Screenlingo"
+Issues = "https://github.com/chaturvedi-vardhanharsh/Screenlingo/issues"
+
+[project.scripts]
+screenlingo = "screenlingo.app:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["screenlingo*"]

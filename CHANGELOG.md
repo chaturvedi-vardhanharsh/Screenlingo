@@ -2,6 +2,13 @@
 
 All notable changes to ScreenLingo are documented in this file.
 
+## [1.0.1] - 2026-05-19
+
+### Fixed
+
+- Screen capture crash on mss 10.x (`'ScreenShot' object has no attribute 'bgr'`) — now uses `rgb` API with fallback for older mss
+- Use primary monitor by default instead of all monitors combined (faster, more stable)
+
 ## [1.0.0] - 2026-05-19
 
 ### Added

@@ -6,12 +6,11 @@ from functools import lru_cache
 import requests
 from deep_translator import MyMemoryTranslator
 
+from .config import language_label
 from .ssl_setup import requests_verify_setting
 from .text_utils import chunk_text, prepare_text_for_translation
 
-# JSON endpoint — often works better than translate.google.com/m on corporate networks
 _GOOGLE_API = "https://translate.googleapis.com/translate_a/single"
-
 
 @lru_cache(maxsize=256)
 def _cache_key(text: str, source: str, target: str) -> str:
@@ -22,10 +21,27 @@ def _cache_key(text: str, source: str, target: str) -> str:
 _translation_cache: dict[str, str] = {}
 
 
+def clear_translation_cache() -> None:
+    _translation_cache.clear()
+    _cache_key.cache_clear()
+
+
+def _base_lang(code: str) -> str:
+    if not code or code == "auto":
+        return ""
+    return code.split("-")[0].lower()
+
+
+def _langs_equivalent(source: str, target: str) -> bool:
+    if source == "auto" or not source or not target:
+        return False
+    return _base_lang(source) == _base_lang(target)
+
+
 def _google_translate_chunk(text: str, source: str, target: str) -> str:
     params = {
         "client": "gtx",
-        "sl": source,
+        "sl": source if source != "auto" else "auto",
         "tl": target,
         "dt": "t",
         "q": text,
@@ -45,8 +61,7 @@ def _google_translate_chunk(text: str, source: str, target: str) -> str:
 
 def _mymemory_translate_chunk(text: str, source: str, target: str) -> str:
     src = "en" if source in ("auto", "") else source
-    tgt = target or "en"
-    translator = MyMemoryTranslator(source=src, target=tgt)
+    translator = MyMemoryTranslator(source=src, target=target)
     return str(translator.translate(text))
 
 
@@ -68,6 +83,16 @@ def translate_text(
     if not text:
         return ""
 
+    source_lang = source_lang or "auto"
+    target_lang = target_lang or "en"
+
+    if _langs_equivalent(source_lang, target_lang):
+        label = language_label(target_lang)
+        return (
+            f"[Same language] Source and target are both {label}. "
+            f"Change target language in the app (e.g. Hindi, Spanish)."
+        )
+
     key = _cache_key(text, source_lang, target_lang)
     if key in _translation_cache:
         return _translation_cache[key]
@@ -77,6 +102,16 @@ def translate_text(
         parts = chunk_text(text)
         translated_parts = [_translate_chunk_with_fallback(part, src, target_lang) for part in parts]
         result = "\n".join(translated_parts)
+        if (
+            result.strip().lower() == text.strip().lower()
+            and target_lang != "auto"
+            and source_lang == "auto"
+        ):
+            result = (
+                f"{result}\n\n"
+                f"[Tip] Text may already be {language_label(target_lang)}, "
+                f"or translation was blocked. Try another target language or Relax SSL check."
+            )
     except Exception as exc:
         hint = ""
         err = str(exc).lower()

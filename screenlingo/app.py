@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 import threading
 import tkinter as tk
 
 import customtkinter as ctk
 
 from .config import DEFAULT_LANGUAGES, AppConfig, language_label
+from .translator import clear_translation_cache
 from .engine import LiveTranslationEngine
 from .overlay import TranslationOverlay
 from .region_select import RegionSelector
@@ -13,6 +15,10 @@ from .vocabulary import VocabularyStore, WordEntry
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+
+def _base_lang_code(code: str) -> str:
+    return code.split("-")[0].lower() if code and code != "auto" else ""
 
 
 class ScreenLingoApp(ctk.CTk):
@@ -56,10 +62,13 @@ class ScreenLingoApp(ctk.CTk):
         if not include_auto:
             codes = [c for c in codes if c != "auto"]
         labels = [f"{language_label(c)} ({c})" for c in codes]
-        mapping = {labels[i]: codes[i] for i in range(len(codes))}
+        self._lang_label_to_code = getattr(self, "_lang_label_to_code", {})
+        for lbl, code in zip(labels, codes):
+            self._lang_label_to_code[lbl] = code
 
         def on_change(choice: str) -> None:
-            variable.set(mapping.get(choice, codes[0]))
+            variable.set(self._lang_label_to_code.get(choice, codes[0]))
+            self._update_lang_status()
 
         current = variable.get()
         menu = ctk.CTkOptionMenu(
@@ -67,11 +76,33 @@ class ScreenLingoApp(ctk.CTk):
             values=labels,
             command=on_change,
         )
-        for lbl, code in mapping.items():
+        for lbl, code in zip(labels, codes):
             if code == current:
                 menu.set(lbl)
                 break
         return menu
+
+    @staticmethod
+    def _code_from_menu_label(label: str) -> str:
+        match = re.search(r"\(([a-z]{2}(?:-[A-Z]{2})?)\)\s*$", label)
+        return match.group(1) if match else label
+
+    def _read_lang_from_menu(self, menu: ctk.CTkOptionMenu, fallback_var: ctk.StringVar) -> str:
+        try:
+            label = menu.get()
+            return self._lang_label_to_code.get(label, self._code_from_menu_label(label))
+        except Exception:
+            return fallback_var.get()
+
+    def _update_lang_status(self) -> None:
+        src = language_label(self.src_var.get())
+        tgt = language_label(self.tgt_var.get())
+        note = ""
+        if self.src_var.get() != "auto" and _base_lang_code(self.src_var.get()) == _base_lang_code(
+            self.tgt_var.get()
+        ):
+            note = " · Change target language — source and target are the same"
+        self.lang_status_label.configure(text=f"Translating: {src} → {tgt}{note}")
 
     def _build_live_tab(self) -> None:
         frame = self.tab_live
@@ -89,10 +120,19 @@ class ScreenLingoApp(ctk.CTk):
         self.tgt_menu = self._lang_menu(settings, self.tgt_var)
         self.tgt_menu.grid(row=1, column=1, padx=8, pady=8)
 
-        ctk.CTkLabel(settings, text="Refresh (seconds)").grid(row=2, column=0, padx=8, pady=8, sticky="w")
+        self.lang_status_label = ctk.CTkLabel(
+            settings,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color="#7fdbca",
+        )
+        self.lang_status_label.grid(row=2, column=0, columnspan=2, padx=8, pady=(0, 4), sticky="w")
+        self._update_lang_status()
+
+        ctk.CTkLabel(settings, text="Refresh (seconds)").grid(row=3, column=0, padx=8, pady=8, sticky="w")
         self.interval_slider = ctk.CTkSlider(settings, from_=1, to=8, number_of_steps=7)
         self.interval_slider.set(self.config_data.poll_interval_sec)
-        self.interval_slider.grid(row=2, column=1, padx=8, pady=8, sticky="ew")
+        self.interval_slider.grid(row=3, column=1, padx=8, pady=8, sticky="ew")
         settings.grid_columnconfigure(1, weight=1)
 
         region_row = ctk.CTkFrame(frame, fg_color="transparent")
@@ -255,12 +295,19 @@ class ScreenLingoApp(ctk.CTk):
         self.region_label.configure(text=self._region_text())
 
     def _apply_settings(self) -> None:
-        self.config_data.source_lang = self.src_var.get()
-        self.config_data.target_lang = self.tgt_var.get()
+        prev_src = self.config_data.source_lang
+        prev_tgt = self.config_data.target_lang
+        self.config_data.source_lang = self._read_lang_from_menu(self.src_menu, self.src_var)
+        self.config_data.target_lang = self._read_lang_from_menu(self.tgt_menu, self.tgt_var)
+        self.src_var.set(self.config_data.source_lang)
+        self.tgt_var.set(self.config_data.target_lang)
         self.config_data.poll_interval_sec = float(self.interval_slider.get())
         self.config_data.use_system_certificates = bool(self.system_cert_var.get())
         self.config_data.ssl_verify = not bool(self.relax_ssl_var.get())
         self.config_data.save()
+        if prev_src != self.config_data.source_lang or prev_tgt != self.config_data.target_lang:
+            clear_translation_cache()
+        self._update_lang_status()
         self._reconfigure_ssl()
 
     def _reconfigure_ssl(self) -> None:

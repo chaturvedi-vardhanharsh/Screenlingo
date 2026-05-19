@@ -3,6 +3,8 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Callable
 
+from .dpi import enable_dpi_awareness, get_virtual_screen_bounds
+
 
 class RegionSelector(tk.Toplevel):
     """Fullscreen translucent overlay to drag-select a screen region."""
@@ -13,19 +15,36 @@ class RegionSelector(tk.Toplevel):
         on_select: Callable[[tuple[int, int, int, int]], None],
         on_cancel: Callable[[], None] | None = None,
     ) -> None:
+        enable_dpi_awareness()
         super().__init__(master)
         self.on_select = on_select
         self.on_cancel = on_cancel
         self._finished = False
-        self.attributes("-fullscreen", True)
-        self.attributes("-alpha", 0.25)
-        self.attributes("-topmost", True)
+
+        self._screen_left, self._screen_top, self._screen_width, self._screen_height = (
+            get_virtual_screen_bounds()
+        )
+
+        # Do not use -fullscreen (sizes to parent window). Cover all monitors explicitly.
         self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.3)
+        self.geometry(
+            f"{self._screen_width}x{self._screen_height}"
+            f"+{self._screen_left}+{self._screen_top}"
+        )
         self.configure(bg="black")
         self.cursor = "crosshair"
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 
-        self.canvas = tk.Canvas(self, cursor="crosshair", highlightthickness=0, bg="black")
+        self.canvas = tk.Canvas(
+            self,
+            width=self._screen_width,
+            height=self._screen_height,
+            cursor="crosshair",
+            highlightthickness=0,
+            bg="black",
+        )
         self.canvas.pack(fill="both", expand=True)
 
         self.start_x: int | None = None
@@ -39,12 +58,19 @@ class RegionSelector(tk.Toplevel):
 
         hint = tk.Label(
             self,
-            text="Drag to select capture area · Esc to cancel",
+            text="Drag anywhere on screen to select · Esc to cancel",
             fg="white",
             bg="black",
             font=("Segoe UI", 14),
         )
-        hint.place(relx=0.5, rely=0.02, anchor="n")
+        hint.place(relx=0.5, y=12, anchor="n")
+
+    def _to_screen_region(self, x1: int, y1: int, x2: int, y2: int) -> tuple[int, int, int, int]:
+        left = self._screen_left + min(x1, x2)
+        top = self._screen_top + min(y1, y2)
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+        return left, top, width, height
 
     def _on_press(self, event: tk.Event) -> None:
         self.start_x = event.x
@@ -52,7 +78,7 @@ class RegionSelector(tk.Toplevel):
         if self.rect_id:
             self.canvas.delete(self.rect_id)
         self.rect_id = self.canvas.create_rectangle(
-            event.x, event.y, event.x, event.y, outline="#00d4ff", width=2
+            event.x, event.y, event.x, event.y, outline="#00d4ff", width=3
         )
 
     def _on_drag(self, event: tk.Event) -> None:
@@ -78,11 +104,8 @@ class RegionSelector(tk.Toplevel):
         if self.start_x is None or self.start_y is None:
             self._cancel()
             return
-        x1, y1 = self.start_x, self.start_y
-        x2, y2 = event.x, event.y
-        left, top = min(x1, x2), min(y1, y2)
-        width, height = abs(x2 - x1), abs(y2 - y1)
-        if width < 20 or height < 20:
+        region = self._to_screen_region(self.start_x, self.start_y, event.x, event.y)
+        if region[2] < 20 or region[3] < 20:
             self._cancel()
             return
-        self._complete((left, top, width, height))
+        self._complete(region)

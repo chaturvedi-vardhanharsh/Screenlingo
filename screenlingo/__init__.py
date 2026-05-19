@@ -1,3 +1,3 @@
 """ScreenLingo — real-time screen translation with vocabulary learning."""
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"

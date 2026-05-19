@@ -109,48 +109,79 @@ class VocabularyStore:
                     )
         return new_frequent
 
+    @staticmethod
+    def _source_sql(source_lang: str) -> tuple[str, tuple[str, ...]]:
+        """Match words saved with auto-detect or a specific source language."""
+        if source_lang == "auto":
+            return "source_lang = 'auto'", ()
+        return "(source_lang = ? OR source_lang = 'auto')", (source_lang,)
+
     def ensure_translations(self, source_lang: str, target_lang: str, limit: int = 50) -> None:
+        src_sql, src_params = self._source_sql(source_lang)
+        tr_source = "en" if source_lang == "auto" else source_lang
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT id, word FROM words
-                WHERE source_lang=? AND target_lang=? AND (translation='' OR translation IS NULL)
+                WHERE {src_sql} AND target_lang = ?
+                  AND (translation = '' OR translation IS NULL)
                 ORDER BY seen_count DESC LIMIT ?
                 """,
-                (source_lang, target_lang, limit),
+                (*src_params, target_lang, limit),
             ).fetchall()
             for row in rows:
                 try:
-                    tr = translate_word(row["word"], source_lang, target_lang)
+                    tr = translate_word(row["word"], tr_source, target_lang)
+                    if tr.startswith("[") and "error" in tr.lower():
+                        continue
                     conn.execute("UPDATE words SET translation=? WHERE id=?", (tr, row["id"]))
                 except Exception:
                     pass
 
     def top_words(self, source_lang: str, target_lang: str, limit: int = 30) -> list[WordEntry]:
+        src_sql, src_params = self._source_sql(source_lang)
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM words
-                WHERE source_lang=? AND target_lang=? AND seen_count >= 2
+                WHERE {src_sql} AND target_lang = ? AND seen_count >= 2
                 ORDER BY seen_count DESC LIMIT ?
                 """,
-                (source_lang, target_lang, limit),
+                (*src_params, target_lang, limit),
             ).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
     def due_for_review(self, source_lang: str, target_lang: str, limit: int = 20) -> list[WordEntry]:
         now = _now()
+        src_sql, src_params = self._source_sql(source_lang)
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM words
-                WHERE source_lang=? AND target_lang=?
+                WHERE {src_sql} AND target_lang = ?
                   AND seen_count >= 2
                   AND (next_review IS NULL OR next_review <= ?)
                 ORDER BY seen_count DESC, next_review ASC
                 LIMIT ?
                 """,
-                (source_lang, target_lang, now, limit),
+                (*src_params, target_lang, now, limit),
+            ).fetchall()
+        return [self._row_to_entry(r) for r in rows]
+
+    def practice_words(
+        self, source_lang: str, target_lang: str, limit: int = 20, min_seen: int = 1
+    ) -> list[WordEntry]:
+        """Words available to practice (broader than due_for_review for new users)."""
+        src_sql, src_params = self._source_sql(source_lang)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM words
+                WHERE {src_sql} AND target_lang = ? AND seen_count >= ?
+                ORDER BY seen_count DESC, last_seen DESC
+                LIMIT ?
+                """,
+                (*src_params, target_lang, min_seen, limit),
             ).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
@@ -190,18 +221,19 @@ class VocabularyStore:
             )
 
     def stats(self, source_lang: str, target_lang: str) -> dict:
+        src_sql, src_params = self._source_sql(source_lang)
         with self._connect() as conn:
             total = conn.execute(
-                "SELECT COUNT(*) FROM words WHERE source_lang=? AND target_lang=?",
-                (source_lang, target_lang),
+                f"SELECT COUNT(*) FROM words WHERE {src_sql} AND target_lang = ?",
+                (*src_params, target_lang),
             ).fetchone()[0]
             frequent = conn.execute(
-                "SELECT COUNT(*) FROM words WHERE source_lang=? AND target_lang=? AND seen_count>=2",
-                (source_lang, target_lang),
+                f"SELECT COUNT(*) FROM words WHERE {src_sql} AND target_lang = ? AND seen_count >= 2",
+                (*src_params, target_lang),
             ).fetchone()[0]
             mastered = conn.execute(
-                "SELECT COUNT(*) FROM words WHERE source_lang=? AND target_lang=? AND correct_count>=3",
-                (source_lang, target_lang),
+                f"SELECT COUNT(*) FROM words WHERE {src_sql} AND target_lang = ? AND correct_count >= 3",
+                (*src_params, target_lang),
             ).fetchone()[0]
         return {"total": total, "frequent": frequent, "mastered": mastered}
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
+from .branding import apply_window_icon
+from .ui_text import make_scroll_textbox, refresh_scrollbar
+
 
 class TranslationOverlay(ctk.CTkToplevel):
     """Always-on-top floating panel showing latest translation."""
@@ -12,8 +15,9 @@ class TranslationOverlay(ctk.CTkToplevel):
         self.attributes("-topmost", True)
         self.attributes("-alpha", opacity)
         self.overrideredirect(True)
-        self.geometry("420x280+40+40")
+        self.geometry("420x320+40+40")
         self.configure(fg_color=("#1a1a2e", "#1a1a2e"))
+        apply_window_icon(self)
 
         self._drag_x = 0
         self._drag_y = 0
@@ -32,14 +36,14 @@ class TranslationOverlay(ctk.CTkToplevel):
         self.status_label.bind("<Button-1>", self._start_drag)
         self.status_label.bind("<B1-Motion>", self._on_drag)
 
-        self.original_box = ctk.CTkTextbox(self, height=100, font=ctk.CTkFont(size=12))
+        self.original_box = make_scroll_textbox(self, height=110)
         self.original_box.pack(fill="both", expand=True, padx=10, pady=6)
-        self.original_box.configure(state="disabled")
+        self.original_box.configure(state="disabled", font=ctk.CTkFont(size=12))
 
         ctk.CTkLabel(self, text="Translation", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=12)
-        self.translation_box = ctk.CTkTextbox(self, height=100, font=ctk.CTkFont(size=13, weight="bold"))
+        self.translation_box = make_scroll_textbox(self, height=110)
         self.translation_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.translation_box.configure(state="disabled")
+        self.translation_box.configure(state="disabled", font=ctk.CTkFont(size=13, weight="bold"))
 
         self.frequent_label = ctk.CTkLabel(
             self, text="", font=ctk.CTkFont(size=11), text_color="#7fdbca", wraplength=380
@@ -69,3 +73,4 @@ class TranslationOverlay(ctk.CTkToplevel):
         box.delete("1.0", "end")
         box.insert("1.0", content)
         box.configure(state="disabled")
+        refresh_scrollbar(box)

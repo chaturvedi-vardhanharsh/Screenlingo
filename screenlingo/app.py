@@ -6,7 +6,9 @@ import tkinter as tk
 
 import customtkinter as ctk
 
+from .branding import LOGO_CHOICES, apply_window_icon, set_app_icon_from_choice
 from .config import DEFAULT_LANGUAGES, AppConfig, format_lang_pair, language_label
+from .ui_text import make_scroll_textbox, refresh_scrollbar
 from .vocab_widgets import add_vocab_word_card, pair_menu_label, show_vocab_empty_state
 from .learn_check import answers_match, is_valid_flashcard
 from .translation_text import is_noop_translation, sanitize_translation
@@ -28,8 +30,9 @@ class ScreenLingoApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title("ScreenLingo — Real-time Screen Translator")
-        self.geometry("720x640")
-        self.minsize(640, 560)
+        self.geometry("720x680")
+        self.minsize(640, 600)
+        apply_window_icon(self)
 
         self.config_data = AppConfig.load()
         self.vocabulary = VocabularyStore()
@@ -180,17 +183,41 @@ class ScreenLingoApp(ctk.CTk):
             side="left", padx=4
         )
 
+        icon_row = ctk.CTkFrame(frame, fg_color="transparent")
+        icon_row.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(icon_row, text="App icon (taskbar):", font=ctk.CTkFont(size=12)).pack(
+            side="left", padx=(4, 8)
+        )
+        logo_labels = list(LOGO_CHOICES.keys())
+        self.logo_menu = ctk.CTkOptionMenu(
+            icon_row,
+            values=logo_labels,
+            command=self._on_logo_choice,
+            width=160,
+        )
+        self.logo_menu.set(logo_labels[0])
+        self.logo_menu.pack(side="left", padx=4)
+        ctk.CTkLabel(
+            icon_row,
+            text="Preview files in assets/logos/",
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+        ).pack(side="left", padx=8)
+
         self.status_label = ctk.CTkLabel(frame, text="Ready", text_color="gray70")
         self.status_label.pack(anchor="w", padx=12)
 
         preview = ctk.CTkFrame(frame)
         preview.pack(fill="both", expand=True, padx=8, pady=8)
-        ctk.CTkLabel(preview, text="Detected text").pack(anchor="w", padx=8, pady=(8, 0))
-        self.preview_original = ctk.CTkTextbox(preview, height=120)
-        self.preview_original.pack(fill="both", expand=True, padx=8, pady=4)
-        ctk.CTkLabel(preview, text="Translation").pack(anchor="w", padx=8)
-        self.preview_translated = ctk.CTkTextbox(preview, height=120)
-        self.preview_translated.pack(fill="both", expand=True, padx=8, pady=8)
+        preview.grid_rowconfigure(1, weight=1)
+        preview.grid_rowconfigure(3, weight=1)
+        preview.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(preview, text="Detected text").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
+        self.preview_original = make_scroll_textbox(preview, height=130)
+        self.preview_original.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        ctk.CTkLabel(preview, text="Translation").grid(row=2, column=0, sticky="w", padx=8)
+        self.preview_translated = make_scroll_textbox(preview, height=130)
+        self.preview_translated.grid(row=3, column=0, sticky="nsew", padx=8, pady=8)
 
         hint = ctk.CTkLabel(
             frame,
@@ -433,13 +460,21 @@ class ScreenLingoApp(ctk.CTk):
     def _on_status(self, msg: str) -> None:
         self.after(0, lambda: self.status_label.configure(text=msg))
 
+    def _on_logo_choice(self, choice: str) -> None:
+        if set_app_icon_from_choice(choice):
+            apply_window_icon(self)
+            self._on_status(f"Icon set to {choice}")
+
     def _set_preview(self, original: str, translated: str) -> None:
         for box, content in (
             (self.preview_original, original),
             (self.preview_translated, translated),
         ):
+            box.configure(state="normal")
             box.delete("1.0", "end")
             box.insert("1.0", content)
+            box.configure(state="disabled")
+            refresh_scrollbar(box)
 
     def _translate_once(self) -> None:
         self._apply_settings()

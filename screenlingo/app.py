@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from .config import DEFAULT_LANGUAGES, AppConfig, language_label
 from .learn_check import answers_match, is_valid_flashcard
+from .translation_text import is_noop_translation, sanitize_translation
 from .translator import clear_translation_cache
 from .engine import LiveTranslationEngine
 from .overlay import TranslationOverlay
@@ -482,11 +483,12 @@ class ScreenLingoApp(ctk.CTk):
                     )
                     if not queue:
                         self.learn_hint.configure(
-                            text="No words yet. Use Live Translate on screen text, then try again."
+                            text="No usable cards. Set target to a language you learn (e.g. Hindi), "
+                            "capture foreign text — not English menus."
                         )
                         self.card_word.configure(text="No words to practice")
                         self.card_feedback.configure(
-                            text="Use Live Translate on foreign text (not the English overlay)."
+                            text="Old English→English entries were removed. Translate new on-screen text."
                         )
                         self.card_meta.configure(text="")
                         self.answer_entry.configure(state="disabled")
@@ -512,8 +514,11 @@ class ScreenLingoApp(ctk.CTk):
         tgt = language_label(self.config_data.target_lang)
         src = self.config_data.source_lang
         if src == "auto":
-            return f"Word from your screen — type the {tgt} translation:"
-        return f"{language_label(src)} word — type the {tgt} translation:"
+            return (
+                f"Word captured from your screen — type its {tgt} meaning "
+                f"(use foreign text on screen, not English UI):"
+            )
+        return f"{language_label(src)} → {tgt}: type the translation:"
 
     def _show_current_card(self) -> None:
         if not self._review_queue or self._review_index >= len(self._review_queue):
@@ -543,7 +548,7 @@ class ScreenLingoApp(ctk.CTk):
         return self._review_queue[self._review_index]
 
     def _expected_translation(self, entry) -> str:
-        return (entry.translation or "").strip()
+        return sanitize_translation(entry.translation or "")
 
     def _check_answer(self) -> None:
         entry = self._current_entry()
@@ -568,6 +573,14 @@ class ScreenLingoApp(ctk.CTk):
             self.vocabulary.record_review(entry.id, True)
             self._answer_checked = True
             self.learn_hint.configure(text="Nice! Moving to next card…")
+            self.after(900, self._advance_card)
+        elif is_noop_translation(entry.word, expected) or not expected:
+            self.card_feedback.configure(
+                text="This card has no real translation (English→English). Skipping…",
+                text_color="#e85d04",
+            )
+            self.vocabulary.record_review(entry.id, False)
+            self._answer_checked = True
             self.after(900, self._advance_card)
         else:
             self.card_feedback.configure(

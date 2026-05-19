@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH
+from .translation_text import sanitize_translation
 from .translator import translate_word
 
 
@@ -93,12 +94,11 @@ class VocabularyStore:
                     if new_count == min_seen_for_learn:
                         new_frequent.append(word)
                 else:
-                    translation = ""
-                    if source_lang != "auto" and source_lang != target_lang:
-                        try:
-                            translation = translate_word(word, source_lang, target_lang)
-                        except Exception:
-                            translation = ""
+                    tr_src = source_lang if source_lang != "auto" else "auto"
+                    try:
+                        translation = translate_word(word, tr_src, target_lang)
+                    except Exception:
+                        translation = ""
                     conn.execute(
                         """
                         INSERT INTO words (word, translation, source_lang, target_lang,
@@ -116,15 +116,28 @@ class VocabularyStore:
             return "source_lang = 'auto'", ()
         return "(source_lang = ? OR source_lang = 'auto')", (source_lang,)
 
+    def repair_translations(self) -> int:
+        """Clean tips/errors from stored translations. Returns rows updated."""
+        updated = 0
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id, translation FROM words").fetchall()
+            for row in rows:
+                clean = sanitize_translation(row["translation"] or "")
+                if clean != (row["translation"] or ""):
+                    conn.execute("UPDATE words SET translation=? WHERE id=?", (clean, row["id"]))
+                    updated += 1
+        return updated
+
     def ensure_translations(self, source_lang: str, target_lang: str, limit: int = 50) -> None:
+        self.repair_translations()
         src_sql, src_params = self._source_sql(source_lang)
-        tr_source = "en" if source_lang == "auto" else source_lang
+        tr_source = source_lang if source_lang != "auto" else "auto"
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT id, word FROM words
+                SELECT id, word, translation FROM words
                 WHERE {src_sql} AND target_lang = ?
-                  AND (translation = '' OR translation IS NULL)
+                  AND (translation = '' OR translation IS NULL OR translation LIKE '[%')
                 ORDER BY seen_count DESC LIMIT ?
                 """,
                 (*src_params, target_lang, limit),
@@ -132,7 +145,7 @@ class VocabularyStore:
             for row in rows:
                 try:
                     tr = translate_word(row["word"], tr_source, target_lang)
-                    if tr.startswith("[") and "error" in tr.lower():
+                    if not tr:
                         continue
                     conn.execute("UPDATE words SET translation=? WHERE id=?", (tr, row["id"]))
                 except Exception:

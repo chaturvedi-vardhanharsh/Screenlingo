@@ -7,10 +7,13 @@ import requests
 from deep_translator import MyMemoryTranslator
 
 from .config import language_label
+from .learn_check import normalize_answer
 from .ssl_setup import requests_verify_setting
 from .text_utils import chunk_text, prepare_text_for_translation
+from .translation_text import is_error_translation, sanitize_translation
 
 _GOOGLE_API = "https://translate.googleapis.com/translate_a/single"
+
 
 @lru_cache(maxsize=256)
 def _cache_key(text: str, source: str, target: str) -> str:
@@ -78,6 +81,7 @@ def translate_text(
     target_lang: str = "en",
     *,
     max_chars: int = 1200,
+    show_same_language_tip: bool = True,
 ) -> str:
     text = prepare_text_for_translation(text, max_chars=max_chars)
     if not text:
@@ -103,7 +107,8 @@ def translate_text(
         translated_parts = [_translate_chunk_with_fallback(part, src, target_lang) for part in parts]
         result = "\n".join(translated_parts)
         if (
-            result.strip().lower() == text.strip().lower()
+            show_same_language_tip
+            and result.strip().lower() == text.strip().lower()
             and target_lang != "auto"
             and source_lang == "auto"
         ):
@@ -127,5 +132,18 @@ def translate_text(
     return result
 
 
-def translate_word(word: str, source_lang: str, target_lang: str) -> str:
-    return translate_text(word, source_lang, target_lang, max_chars=200)
+def translate_word(word: str, source_lang: str = "auto", target_lang: str = "en") -> str:
+    """Translate a single vocabulary word — never includes screen UI tips."""
+    word = word.strip()
+    if not word or _langs_equivalent(source_lang, target_lang):
+        return ""
+    src = source_lang if source_lang != "auto" else "auto"
+    try:
+        result = sanitize_translation(_translate_chunk_with_fallback(word, src, target_lang))
+    except Exception:
+        return ""
+    if not result or is_error_translation(result):
+        return ""
+    if normalize_answer(result) == normalize_answer(word):
+        return ""
+    return result
